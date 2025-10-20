@@ -1,0 +1,1 @@
+Add `use App\Traits\LogsActivity;` inside models you want to audit, e.g., Income, Expense, Invoice.
