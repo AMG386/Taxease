@@ -49,8 +49,9 @@ Route::middleware(['auth'])->group(function () {
     });
 
     // Import invoices (JSON)
-    Route::post('/invoices/import-json', [InvoiceImportController::class, 'store'])
-        ->name('invoices.import.json');
+    
+Route::post('/invoices/import-json', [InvoiceImportController::class, 'store'])
+     ->name('invoices.import-json');
 
     // GST stepper / 3B flow
     Route::get('/gst/stepper', [GstFilingController::class, 'stepper'])->name('gst.stepper');
@@ -76,9 +77,11 @@ Route::middleware(['auth'])->group(function () {
     // Audit (global page)
     Route::get('/audits', [AuditController::class, 'index'])->name('audits.index');
 
-    // GST Settings
+    // GST Settings - Complete CRUD
     Route::get('/gst/settings', [GstSettingsController::class, 'edit'])->name('gst.settings');
     Route::post('/gst/settings', [GstSettingsController::class, 'update'])->name('gst.settings.update');
+    Route::get('/gst/settings/show', [GstSettingsController::class, 'show'])->name('gst.settings.show');
+    Route::delete('/gst/settings', [GstSettingsController::class, 'destroy'])->name('gst.settings.destroy');
 
     /*
     |--------------------------------------------------------------------------
@@ -101,6 +104,11 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/returns/{gstReturn}/export', [GstReturnController::class, 'exportJson'])->name('returns.export'); // consistent name
         Route::post('/returns/{gstReturn}/file', [GstReturnController::class, 'fileReturn'])->name('returns.file');
 
+        // Return summary endpoints (alternative paths)
+        Route::get('/returns/gstr1', [GstReturnController::class, 'gstr1']);
+        Route::get('/returns/gstr3b', [GstReturnController::class, 'gstr3b']);
+        Route::get('/returns/cmp08', [GstReturnController::class, 'cmp08']);
+
         // Audit uploads (tied to returns)
         Route::post('/returns/{gstReturn}/audit', [GstReturnAuditController::class, 'store'])->name('returns.audit');
         Route::get('/returns/audit/{audit}/download', [GstReturnAuditController::class, 'download'])->name('returns.audit.download');
@@ -109,6 +117,12 @@ Route::middleware(['auth'])->group(function () {
         // Composition (CMP-08 / GSTR-4)
         Route::get('/composition', [GstReturnController::class, 'cmpDashboard'])->name('cmp.dashboard');
         Route::put('/composition/{rec}', [GstReturnController::class, 'cmpUpdate'])->name('cmp.update');
+
+        // Return Summary APIs
+        Route::get('/summary/gstr1', [GstReturnController::class, 'gstr1'])->name('summary.gstr1');
+        Route::get('/summary/gstr3b', [GstReturnController::class, 'gstr3b'])->name('summary.gstr3b');
+        Route::get('/summary/cmp08', [GstReturnController::class, 'cmp08'])->name('summary.cmp08');
+        Route::get('/recommendations', [GstReturnController::class, 'recommendations'])->name('recommendations');
     });
 
     // Sales Invoices
@@ -116,6 +130,10 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/invoices', [SalesInvoiceController::class, 'index'])->name('invoices.index');
         Route::get('/invoices/create', [SalesInvoiceController::class, 'create'])->name('invoices.create');
         Route::post('/invoices', [SalesInvoiceController::class, 'store'])->name('invoices.store');
+        Route::get('/invoices/{salesInvoice}', [SalesInvoiceController::class, 'show'])->name('invoices.show');
+        Route::get('/invoices/{salesInvoice}/edit', [SalesInvoiceController::class, 'edit'])->name('invoices.edit');
+        Route::put('/invoices/{salesInvoice}', [SalesInvoiceController::class, 'update'])->name('invoices.update');
+        Route::delete('/invoices/{salesInvoice}', [SalesInvoiceController::class, 'destroy'])->name('invoices.destroy');
     });
 
     // Purchase Invoices
@@ -123,5 +141,9 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/invoices', [PurchaseInvoiceController::class, 'index'])->name('invoices.index');
         Route::get('/invoices/create', [PurchaseInvoiceController::class, 'create'])->name('invoices.create');
         Route::post('/invoices', [PurchaseInvoiceController::class, 'store'])->name('invoices.store');
+        Route::get('/invoices/{purchaseInvoice}', [PurchaseInvoiceController::class, 'show'])->name('invoices.show');
+        Route::get('/invoices/{purchaseInvoice}/edit', [PurchaseInvoiceController::class, 'edit'])->name('invoices.edit');
+        Route::put('/invoices/{purchaseInvoice}', [PurchaseInvoiceController::class, 'update'])->name('invoices.update');
+        Route::delete('/invoices/{purchaseInvoice}', [PurchaseInvoiceController::class, 'destroy'])->name('invoices.destroy');
     });
 });

@@ -395,6 +395,80 @@ private static function n($v, $default = 0.0): float
         return back()->with('ok', 'Composition turnover updated.');
     }
 
+    /**
+     * Get GST return recommendations based on user profile
+     */
+    public function recommendations(Request $r)
+    {
+        $data = \App\Support\GstReturnRecommendationService::getRecommendedReturns();
+        return response()->json($data);
+    }
+
+    /**
+     * GSTR-1 Summary API endpoint
+     */
+    public function gstr1(Request $r)
+    {
+        // Check if user should be filing GSTR-1
+        if (\App\Support\GstReturnRecommendationService::isCompositionTaxpayer()) {
+            return response()->json([
+                'error' => 'Composition taxpayers do not file GSTR-1. Use CMP-08 instead.',
+                'recommended_endpoint' => '/gst/returns/cmp08'
+            ], 400);
+        }
+
+        $ym = $r->input('period', now()->format('Y-m'));
+        $data = \App\Support\Gstr1SummaryService::forPeriod($ym);
+        $data['period'] = $ym;
+        $data['return_type'] = 'GSTR-1';
+        return response()->json($data);
+    }
+
+    /**
+     * GSTR-3B Summary API endpoint
+     */
+    public function gstr3b(Request $r)
+    {
+        // Check if user should be filing GSTR-3B
+        if (\App\Support\GstReturnRecommendationService::isCompositionTaxpayer()) {
+            return response()->json([
+                'error' => 'Composition taxpayers do not file GSTR-3B. Use CMP-08 instead.',
+                'recommended_endpoint' => '/gst/returns/cmp08'
+            ], 400);
+        }
+
+        $ym = $r->input('period', now()->format('Y-m'));
+        $data = \App\Support\Gstr3BSummaryService::forPeriod($ym);
+        $data['period'] = $ym;
+        $data['return_type'] = 'GSTR-3B';
+        return response()->json($data);
+    }
+
+    /**
+     * CMP-08 Summary API endpoint (Composition)
+     */
+    public function cmp08(Request $r)
+    {
+        // Check if user should be filing CMP-08
+        if (!\App\Support\GstReturnRecommendationService::isCompositionTaxpayer()) {
+            return response()->json([
+                'error' => 'Only composition taxpayers can file CMP-08. Use GSTR-1/3B instead.',
+                'recommended_endpoints' => [
+                    'gstr1' => '/gst/returns/gstr1',
+                    'gstr3b' => '/gst/returns/gstr3b'
+                ]
+            ], 400);
+        }
+
+        $q = $r->input('quarter', \App\Support\GstReturnRecommendationService::getCurrentQuarter());
+        if (!$q) {
+            return response()->json(['error' => 'Quarter parameter is required'], 400);
+        }
+        $data = \App\Support\Cmp08SummaryService::forQuarter($q);
+        $data['return_type'] = 'CMP-08';
+        return response()->json($data);
+    }
+
     private function authorizeView(GstReturn $gstReturn): void
     {
         abort_unless($gstReturn->user_id === auth()->id(), 403);

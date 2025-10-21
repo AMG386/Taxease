@@ -28,7 +28,7 @@
     }
 
     try {
-      const res = await fetch('{{ route("invoices.import.json") }}', {
+      const res = await fetch('{{ route("invoices.import-json") }}', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

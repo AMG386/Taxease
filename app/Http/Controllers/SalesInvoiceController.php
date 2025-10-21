@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\SalesInvoice;
 use Illuminate\Http\Request;
+use App\Http\Requests\SalesInvoiceRequest;
 
 class SalesInvoiceController extends Controller
 {
@@ -12,6 +13,8 @@ class SalesInvoiceController extends Controller
         $q = SalesInvoice::query()
             ->when($request->filled('from'), fn($x) => $x->whereDate('invoice_date', '>=', $request->date('from')))
             ->when($request->filled('to'),   fn($x) => $x->whereDate('invoice_date', '<=', $request->date('to')))
+            ->when($request->filled('invoice_type'), fn($x) => $x->where('invoice_type', $request->invoice_type))
+            ->when($request->filled('customer'), fn($x) => $x->where('customer_name', 'like', '%' . $request->customer . '%'))
             ->orderByDesc('invoice_date');
 
         $invoices = $q->paginate(15)->withQueryString();
@@ -24,39 +27,128 @@ class SalesInvoiceController extends Controller
         return view('sales_invoices.create');
     }
 
-    public function store(Request $request)
+    public function store(SalesInvoiceRequest $request)
     {
-        $data = $request->validate([
-            'invoice_no'      => 'required|string|max:50|unique:sales_invoices,invoice_no',
-            'invoice_date'    => 'required|date',
-            'customer_name'   => 'nullable|string|max:200',
-            'customer_gstin'  => 'nullable|string|max:20',
-            'hsn'             => 'nullable|string|max:20',
-            'qty'             => 'required|integer|min:1',
-            'uom'             => 'nullable|string|max:20',
-            'taxable_value'   => 'required|numeric|min:0',
-            'tax_rate'        => 'required|numeric|min:0',
-            'place_of_supply' => 'nullable|string|max:100',
-            'origin_state'    => 'required|string|max:100',
-        ]);
+        $data = $request->validated();
 
-        // GST breakup:
-        [$cgst, $sgst, $igst] = $this->computeGst(
+        // Recalculate tax values to ensure consistency
+        $taxCalculation = $this->calculateTaxAmounts(
             $data['taxable_value'],
             $data['tax_rate'],
-            $data['origin_state'] ?? null,
-            $data['place_of_supply'] ?? null
+            $data['supply_type'],
+            $data['qty'] ?? 1,
+            $data['unit_price'] ?? 0,
+            $data['tax_inclusive'] === 'yes',
+            $data['round_off'] ?? 0
         );
 
-        $data['cgst_amount'] = $cgst;
-        $data['sgst_amount'] = $sgst;
-        $data['igst_amount'] = $igst;
+        // Override form values with calculated values for consistency
+        $data = array_merge($data, $taxCalculation);
 
         SalesInvoice::create($data);
 
-        return redirect()->route('sales.invoices.index')->with('status', 'Sales invoice added.');
+        return redirect()->route('sales.invoices.index')->with('status', 'Sales invoice created successfully.');
     }
 
+    public function show(SalesInvoice $salesInvoice)
+    {
+        return view('sales_invoices.show', compact('salesInvoice'));
+    }
+
+    public function edit(SalesInvoice $salesInvoice)
+    {
+        return view('sales_invoices.edit', compact('salesInvoice'));
+    }
+
+    public function update(SalesInvoiceRequest $request, SalesInvoice $salesInvoice)
+    {
+        $data = $request->validated();
+
+        // Recalculate tax values to ensure consistency
+        $taxCalculation = $this->calculateTaxAmounts(
+            $data['taxable_value'],
+            $data['tax_rate'],
+            $data['supply_type'],
+            $data['qty'] ?? 1,
+            $data['unit_price'] ?? 0,
+            $data['tax_inclusive'] === 'yes',
+            $data['round_off'] ?? 0
+        );
+
+        // Override form values with calculated values for consistency
+        $data = array_merge($data, $taxCalculation);
+
+        $salesInvoice->update($data);
+
+        return redirect()->route('sales.invoices.index')->with('status', 'Sales invoice updated successfully.');
+    }
+
+    public function destroy(SalesInvoice $salesInvoice)
+    {
+        $salesInvoice->delete();
+
+        return redirect()->route('sales.invoices.index')->with('status', 'Sales invoice deleted successfully.');
+    }
+
+    /**
+     * Calculate all tax amounts and totals based on the given parameters.
+     */
+    private function calculateTaxAmounts($taxableValue, $taxRate, $supplyType, $qty = 1, $unitPrice = 0, $taxInclusive = false, $roundOff = 0): array
+    {
+        $qty = max(1, (int) $qty);
+        $taxRate = max(0, (float) $taxRate);
+        $roundOff = (float) $roundOff;
+
+        // If unit price is provided and tax inclusive, recalculate taxable value
+        if ($unitPrice > 0 && $taxInclusive) {
+            $grossAmount = $qty * $unitPrice;
+            $taxableValue = $grossAmount / (1 + ($taxRate / 100));
+        } elseif ($unitPrice > 0 && !$taxInclusive) {
+            $taxableValue = $qty * $unitPrice;
+        }
+
+        $taxableValue = round($taxableValue, 2);
+
+        // Calculate tax breakdown based on supply type
+        if ($supplyType === 'inter') {
+            // Inter-state: IGST only
+            $cgstRate = 0;
+            $sgstRate = 0;
+            $igstRate = $taxRate;
+            
+            $cgstAmount = 0;
+            $sgstAmount = 0;
+            $igstAmount = round($taxableValue * ($igstRate / 100), 2);
+        } else {
+            // Intra-state: CGST + SGST split
+            $cgstRate = $taxRate / 2;
+            $sgstRate = $taxRate / 2;
+            $igstRate = 0;
+            
+            $cgstAmount = round($taxableValue * ($cgstRate / 100), 2);
+            $sgstAmount = round($taxableValue * ($sgstRate / 100), 2);
+            $igstAmount = 0;
+        }
+
+        $totalTax = $cgstAmount + $sgstAmount + $igstAmount;
+        $totalInvoiceValue = $taxableValue + $totalTax + $roundOff;
+
+        return [
+            'taxable_value' => $taxableValue,
+            'cgst_rate' => round($cgstRate, 2),
+            'sgst_rate' => round($sgstRate, 2),
+            'igst_rate' => round($igstRate, 2),
+            'tax_amount' => round($totalTax, 2),
+            'cgst_amount' => $cgstAmount,
+            'sgst_amount' => $sgstAmount,
+            'igst_amount' => $igstAmount,
+            'total_invoice_value' => round($totalInvoiceValue, 2),
+        ];
+    }
+
+    /**
+     * Legacy method - keeping for backward compatibility
+     */
     private function computeGst($taxable, $rate, $origin, $pos): array
     {
         $tax = round($taxable * ($rate / 100), 2);
